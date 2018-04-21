@@ -18,7 +18,6 @@ from peakutils.peak import indexes
 part_width, part_height = 10, 58
 lines = 2
 grey_threshold = 120
-diff_threshold = 0.15
 
 position_pattern = re.compile(r'.*background-position: ([\d\-]*)px ([\d\-]*)px')
 image_pattern = re.compile(r'background-image: url\("(.*)"\).*')
@@ -71,8 +70,6 @@ def get_slice(html):
 
 def slice_offset(origin_image, image_to_verify):
     filter_func = lambda x: 0 if x < grey_threshold else 255
-    # origin_image_grey = origin_image.convert('L').point(filter_func)
-    # image_to_verify_grey = image_to_verify.convert('L').point(filter_func)
     origin_image_grey = origin_image.filter(ImageFilter.FIND_EDGES).convert('L').point(filter_func)
     image_to_verify_grey = image_to_verify.filter(ImageFilter.FIND_EDGES).convert('L').point(filter_func)
     if platform.system() == 'Darwin':
@@ -86,10 +83,6 @@ def slice_offset(origin_image, image_to_verify):
         for j in range(origin_image.height - 1, -1, -1):
             if origin_image_grey.getpixel((i, j)) != image_to_verify_grey.getpixel((i, j)):
                 diff_count += 1
-        if diff_count / origin_image.height > diff_threshold:
-            # todo x_diff容错
-            # return i
-            pass
         x_diff[i] = diff_count
     waves = indexes(np.array(x_diff), thres=7.0/max(x_diff), min_dist=20)
     print("waves:", ' '.join((str(x) for x in waves)))
