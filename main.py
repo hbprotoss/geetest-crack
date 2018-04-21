@@ -7,20 +7,22 @@ import re
 import time
 
 import requests
-from PIL import Image
+from PIL import Image, ImageFilter
 from lxml import etree
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import Chrome as Driver
 from selenium.webdriver.common.action_chains import ActionChains
+import numpy as np
+from peakutils.peak import indexes
 
 part_width, part_height = 10, 58
 lines = 2
-grey_threshold = 130
+grey_threshold = 120
 diff_threshold = 0.15
 
 position_pattern = re.compile(r'.*background-position: ([\d\-]*)px ([\d\-]*)px')
 image_pattern = re.compile(r'background-image: url\("(.*)"\).*')
-slice_pattern = re.compile(r'.*width: (\d)*px; height: (\d)*px;')
+slice_pattern = re.compile(r'.*width: (\d*)px; height: (\d*)px;')
 
 
 def get_disordered_image(style):
@@ -52,6 +54,7 @@ def get_origin_image(html):
 def get_image_to_verify(driver, drag, origin_image):
     action = ActionChains(driver)
     action.click_and_hold(drag).perform()
+    time.sleep(1)
     image_to_verify = Image.open(io.BytesIO(driver.get_screenshot_as_png()))
     x = driver.execute_script('return $("div.gt_cut_fullbg")[0].getBoundingClientRect().left')
     y = driver.execute_script('return $("div.gt_cut_fullbg")[0].getBoundingClientRect().top')
@@ -63,13 +66,15 @@ def get_image_to_verify(driver, drag, origin_image):
 def get_slice(html):
     style = html.xpath('//div[@class="gt_slice gt_show"]/@style')[0]
     m = slice_pattern.match(style)
-    return m.group(1), m.group(2)
+    return int(m.group(1)), int(m.group(2))
 
 
 def slice_offset(origin_image, image_to_verify):
     filter_func = lambda x: 0 if x < grey_threshold else 255
-    origin_image_grey = origin_image.convert('L').point(filter_func)
-    image_to_verify_grey = image_to_verify.convert('L').point(filter_func)
+    # origin_image_grey = origin_image.convert('L').point(filter_func)
+    # image_to_verify_grey = image_to_verify.convert('L').point(filter_func)
+    origin_image_grey = origin_image.filter(ImageFilter.FIND_EDGES).convert('L').point(filter_func)
+    image_to_verify_grey = image_to_verify.filter(ImageFilter.FIND_EDGES).convert('L').point(filter_func)
     if platform.system() == 'Darwin':
         image_to_verify_grey = image_to_verify_grey.resize((origin_image.width, origin_image.height))
     origin_image_grey.show()
@@ -83,8 +88,14 @@ def slice_offset(origin_image, image_to_verify):
                 diff_count += 1
         if diff_count / origin_image.height > diff_threshold:
             # todo x_diff容错
-            return i
-    return 0
+            # return i
+            pass
+        x_diff[i] = diff_count
+    waves = indexes(np.array(x_diff), thres=7.0/max(x_diff), min_dist=20)
+    print("waves:", ' '.join((str(x) for x in waves)))
+    offset = waves[2] - waves[0]
+    print('offset:', offset)
+    return offset
 
 
 if __name__ == '__main__':
@@ -99,7 +110,9 @@ if __name__ == '__main__':
             continue
     html = etree.HTML(driver.page_source)
     origin_image = get_origin_image(html)
+    # origin_image.save('origin.png')
     image_to_verify = get_image_to_verify(driver, drag, origin_image)
+    # image_to_verify.save('verify.png')
     slice_width, slice_height = get_slice(html)
     offset = slice_offset(origin_image, image_to_verify)
     action = ActionChains(driver)
